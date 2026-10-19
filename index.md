@@ -1,4 +1,4 @@
-## 2302 Group Project
+## DTSC 2302 Group Project
 ## Group Members
 - Madeline Frank
 - Deleecia Crouch
