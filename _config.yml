@@ -1,0 +1,9 @@
+title: Data Science Final Project Portfolio
+description: Documenting Studio 2 Final Project
+author: Madeline Frank, Deleecia Crouch, Nandu Avulapati, Sarah Spielbauer, Trish Ghattamaneni
+show_downloads: false
+github:
+  is_project_page: false
+remote_theme: pages-themes/cayman@v0.2.0
+plugins:
+- jekyll-remote-theme # add this line to the plugins list if you already have one
