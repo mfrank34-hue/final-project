@@ -158,6 +158,8 @@ def make_examples(daily: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     day_of_year = next_date.dt.dayofyear
     examples["day_sin"] = np.sin(2 * np.pi * day_of_year / 365.25)
     examples["day_cos"] = np.cos(2 * np.pi * day_of_year / 365.25)
+    examples["day_sin_2"] = np.sin(4 * np.pi * day_of_year / 365.25)
+    examples["day_cos_2"] = np.cos(4 * np.pi * day_of_year / 365.25)
     feature_names = [c for c in examples if "_lag_" in c] + ["day_sin", "day_cos"]
 
     contiguous = (
@@ -214,6 +216,12 @@ def markdown_table(rows: list[tuple[str, dict[str, float]]]) -> str:
 def run(csv_path: Path) -> str:
     daily, duplicate_count = load_daily_data(csv_path)
     examples, features = make_examples(daily)
+    # Selected using 2023-2025 rolling validation, before evaluating 2026.
+    regression_features = [
+        f"{field}_lag_{lag}"
+        for field in ("high_f", "low_f", "precip_in")
+        for lag in range(3)
+    ] + ["day_sin", "day_cos", "day_sin_2", "day_cos_2"]
     train = examples.loc[examples["target_date"] < TEST_START]
     test = examples.loc[examples["target_date"] >= TEST_START]
     if train.empty or test.empty:
@@ -223,9 +231,34 @@ def run(csv_path: Path) -> str:
     high_train, high_test = train["target_high_f"], test["target_high_f"]
     rain_train, rain_test = train["target_rain"], test["target_rain"]
 
-    intercept, coefficients = fit_linear_regression(x_train, high_train.to_numpy())
-    high_prediction = intercept + x_test @ coefficients
+    intercept, coefficients = fit_linear_regression(
+        train[regression_features].to_numpy(), high_train.to_numpy()
+    )
+    high_prediction = intercept + test[regression_features].to_numpy() @ coefficients
     high_baseline = test["high_f_lag_0"].to_numpy()  # tomorrow equals today's high
+
+    validation_rows = []
+    for year in (2023, 2024, 2025):
+        earlier = examples.loc[examples["target_date"].dt.year < year]
+        later = examples.loc[examples["target_date"].dt.year == year]
+        old_intercept, old_coefficients = fit_linear_regression(
+            earlier[features].to_numpy(), earlier["target_high_f"].to_numpy()
+        )
+        new_intercept, new_coefficients = fit_linear_regression(
+            earlier[regression_features].to_numpy(),
+            earlier["target_high_f"].to_numpy(),
+        )
+        validation_rows.append((
+            year,
+            regression_metrics(
+                later["target_high_f"],
+                old_intercept + later[features].to_numpy() @ old_coefficients,
+            ),
+            regression_metrics(
+                later["target_high_f"],
+                new_intercept + later[regression_features].to_numpy() @ new_coefficients,
+            ),
+        ))
 
     # Fixed complexity avoids selecting a tree using the held-out 2026 results.
     tree, importances = fit_decision_tree(x_train, rain_train.to_numpy())
@@ -250,7 +283,7 @@ def run(csv_path: Path) -> str:
     tp = int(np.sum((actual_rain == 1) & (rain_prediction == 1)))
 
     top_coefficients = sorted(
-        zip(features, coefficients), key=lambda pair: abs(pair[1]), reverse=True
+        zip(regression_features, coefficients), key=lambda pair: abs(pair[1]), reverse=True
     )[:8]
     top_importances = sorted(
         zip(features, importances), key=lambda pair: pair[1], reverse=True
@@ -271,6 +304,15 @@ def run(csv_path: Path) -> str:
         markdown_table(regression_rows),
         "",
         "On the 2026 holdout, linear regression lowers MAE and RMSE relative to the persistence baseline.",
+        "The revised regression uses the most recent three days and a second seasonal harmonic; it remains ordinary least squares.",
+        "This feature set was chosen on rolling 2023-2025 validation, before checking 2026:",
+        "",
+        "| Validation year | Original seven-day MAE (°F) | Revised three-day MAE (°F) |",
+        "| --- | ---: | ---: |",
+        *[
+            f"| {year} | {old['MAE (F)']:.3f} | {new['MAE (F)']:.3f} |"
+            for year, old, new in validation_rows
+        ],
         "",
         "The persistence baseline predicts that tomorrow's high equals today's observed high.",
         "Lower MAE/RMSE and higher R2 are better.",
@@ -296,7 +338,7 @@ def run(csv_path: Path) -> str:
         "",
         "## Validation notes",
         "",
-        "Each row predicts the next calendar day from the previous seven observed days. No target-day weather values enter the features. The split uses target dates, so no 2026 outcome is used to fit either model. Model settings were fixed before looking at the held-out results.",
+        "Each row predicts the next calendar day from previous observed days: three for linear regression and seven for the decision tree. No target-day weather values enter the features. The split uses target dates, so no 2026 outcome is used to fit either model. Regression features were selected using earlier rolling validation; decision-tree settings were fixed before looking at the held-out results.",
         "These are retrospective results on the supplied historical CSV, not a live forecast for the current date.",
         "",
         "The final course report still needs a third trained model, exploratory figures, literature, and societal analysis.",
