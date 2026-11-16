@@ -216,11 +216,11 @@ def markdown_table(rows: list[tuple[str, dict[str, float]]]) -> str:
 def run(csv_path: Path) -> str:
     daily, duplicate_count = load_daily_data(csv_path)
     examples, features = make_examples(daily)
-    # Selected using 2023-2025 rolling validation, before evaluating 2026.
+    # Keep the full seven-day history and add a second seasonal harmonic.
     regression_features = [
         f"{field}_lag_{lag}"
         for field in ("high_f", "low_f", "precip_in")
-        for lag in range(3)
+        for lag in range(WINDOW_DAYS)
     ] + ["day_sin", "day_cos", "day_sin_2", "day_cos_2"]
     train = examples.loc[examples["target_date"] < TEST_START]
     test = examples.loc[examples["target_date"] >= TEST_START]
@@ -304,10 +304,10 @@ def run(csv_path: Path) -> str:
         markdown_table(regression_rows),
         "",
         "On the 2026 holdout, linear regression lowers MAE and RMSE relative to the persistence baseline.",
-        "The revised regression uses the most recent three days and a second seasonal harmonic; it remains ordinary least squares.",
-        "This feature set was chosen on rolling 2023-2025 validation, before checking 2026:",
+        "The revised regression keeps the most recent seven days and adds a second seasonal harmonic; it remains ordinary least squares.",
+        "Comparison on earlier rolling 2023-2025 validation:",
         "",
-        "| Validation year | Original seven-day MAE (°F) | Revised three-day MAE (°F) |",
+        "| Validation year | Original seven-day MAE (°F) | Revised seven-day MAE (°F) |",
         "| --- | ---: | ---: |",
         *[
             f"| {year} | {old['MAE (F)']:.3f} | {new['MAE (F)']:.3f} |"
@@ -338,7 +338,7 @@ def run(csv_path: Path) -> str:
         "",
         "## Validation notes",
         "",
-        "Each row predicts the next calendar day from previous observed days: three for linear regression and seven for the decision tree. No target-day weather values enter the features. The split uses target dates, so no 2026 outcome is used to fit either model. Regression features were selected using earlier rolling validation; decision-tree settings were fixed before looking at the held-out results.",
+        "Each row predicts the next calendar day from the previous seven observed days. No target-day weather values enter the features. The split uses target dates, so no 2026 outcome is used to fit either model. The extra seasonal terms were compared on earlier rolling validation; decision-tree settings were fixed before looking at the held-out results.",
         "These are retrospective results on the supplied historical CSV, not a live forecast for the current date.",
         "",
         "The final course report still needs a third trained model, exploratory figures, literature, and societal analysis.",
